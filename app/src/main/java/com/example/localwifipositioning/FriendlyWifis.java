@@ -1,0 +1,167 @@
+package com.example.localwifipositioning;
+
+import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
+import android.app.Dialog;
+import android.content.Context;
+import android.content.DialogInterface;
+import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.net.wifi.ScanResult;
+import android.net.wifi.WifiManager;
+import android.os.Bundle;
+import android.util.Log;
+import android.view.View;
+import android.view.View.OnClickListener;
+import android.widget.AdapterView;
+import android.widget.AdapterView.OnItemLongClickListener;
+import android.widget.ArrayAdapter;
+import android.widget.Button;
+import android.widget.ListView;
+import android.widget.Toast;
+
+import androidx.core.app.ActivityCompat;
+
+import java.util.ArrayList;
+import java.util.List;
+
+public class FriendlyWifis extends Activity {
+	private static final int PERMISSIONS_REQUEST_CODE_ACCESS_COARSE_LOCATION = 1;
+	private Button addWifi;
+	WifiManager wifi;
+	List<ScanResult> results;
+	ListView wifisList;
+	protected CharSequence[] options;
+	protected boolean[] selections;
+	ArrayAdapter<Router> arrayAdapter;
+	ArrayList<Router> wifis;
+	String building;
+	Button save;
+
+	DatabaseHelper db;
+
+	@Override
+	public void onCreate(Bundle savedInstanceState) {
+		super.onCreate(savedInstanceState);
+
+		setContentView(R.layout.settings);
+		db = new DatabaseHelper(this);
+		addWifi = findViewById(R.id.button_add);
+		wifi = (WifiManager) getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+		addWifi.setOnClickListener(new ButtonClickHandler());
+		save = findViewById(R.id.save);
+
+		wifisList = findViewById(R.id.friendly_wifis);
+
+		Intent intent = getIntent();
+
+		building = intent.getStringExtra("BUILDING_NAME");
+		wifis = db.getFriendlyWifis(building);
+		arrayAdapter = new ArrayAdapter<>(this,
+				android.R.layout.simple_list_item_1, wifis);
+		// Set The Adapter
+		wifisList.setAdapter(arrayAdapter);
+		save.setOnClickListener(new OnClickListener() {
+
+			@Override
+			public void onClick(View arg0) {
+				if (db.addFriendlyWifis(building, wifis)) {
+					Toast toast = Toast.makeText(getApplicationContext(), "Saved Wi-Fi Network", Toast.LENGTH_SHORT);
+					toast.show();
+				}
+			}
+		});
+
+		wifisList.setOnItemLongClickListener(new OnItemLongClickListener() {
+
+			@Override
+			public boolean onItemLongClick(AdapterView<?> parent, View view,
+										   int arg2, long arg3) {
+				wifis.remove(arg2);
+				arrayAdapter.notifyDataSetChanged();
+				return false;
+			}
+
+		});
+	}
+
+	public void updateOptions() {
+		options = new CharSequence[results.size()];
+		for (int i = 0; i < results.size(); i++)
+			options[i] = results.get(i).SSID;
+		selections = new boolean[options.length];
+	}
+
+	public class ButtonClickHandler implements View.OnClickListener {
+		public void onClick(View view) {
+			if (ActivityCompat.checkSelfPermission(FriendlyWifis.this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+				ActivityCompat.requestPermissions(FriendlyWifis.this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSIONS_REQUEST_CODE_ACCESS_COARSE_LOCATION);
+				// After this point, you wait for the callback in onRequestPermissionsResult(int, String[], int[]) overridden method
+			} else {
+				getAndShowScanResults();
+			}
+		}
+	}
+
+	@Override
+	public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+		if (requestCode == PERMISSIONS_REQUEST_CODE_ACCESS_COARSE_LOCATION && grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+			getAndShowScanResults();
+		}
+	}
+
+	private void getAndShowScanResults() {
+		if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+			ActivityCompat.requestPermissions(this, new String[]{Manifest.permission.ACCESS_FINE_LOCATION}, PERMISSIONS_REQUEST_CODE_ACCESS_COARSE_LOCATION);
+			return;
+		}
+		results = wifi.getScanResults();
+		updateOptions();
+		onCreateDialog(0).show();
+	}
+
+	@Override
+	protected Dialog onCreateDialog(int id) {
+		return new AlertDialog.Builder(this)
+				.setTitle("Choose Friendly Wifis")
+				.setMultiChoiceItems(options, selections, new DialogSelectionClickHandler())
+				.setPositiveButton("OK", new DialogButtonClickHandler())
+				.create();
+	}
+
+	public class DialogSelectionClickHandler implements DialogInterface.OnMultiChoiceClickListener {
+		public void onClick(DialogInterface dialog, int clicked, boolean selected) {
+			Log.i("ME", options[clicked] + " selected: " + selected);
+		}
+	}
+
+	public class DialogButtonClickHandler implements DialogInterface.OnClickListener {
+		public void onClick(DialogInterface dialog, int clicked) {
+			switch (clicked) {
+				case DialogInterface.BUTTON_POSITIVE:
+					updateFriendlyWifis();
+					break;
+			}
+		}
+	}
+
+	protected void updateFriendlyWifis() {
+		for (int i = 0; i < options.length; i++) {
+			if (selections[i]) {
+				Router router = new Router(results.get(i).SSID, results.get(i).BSSID);
+				if (!wifis.contains(router)) {
+					wifis.add(router);
+					Toast.makeText(getApplicationContext(), "Wi-Fi network added: " + router.getSSID(), Toast.LENGTH_SHORT).show();
+				} else {
+					Toast.makeText(getApplicationContext(), "Wi-Fi network already added: " + router.getSSID(), Toast.LENGTH_SHORT).show();
+				}
+			}
+			arrayAdapter = new ArrayAdapter<>(this, android.R.layout.simple_list_item_1, wifis);
+			// Set The Adapter
+			wifisList.setAdapter(arrayAdapter);
+			Log.i("ME", options[i] + " selected: " + selections[i]);
+		}
+	}
+
+}
